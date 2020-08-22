@@ -18,12 +18,14 @@ package raft
 //
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"../labgob"
 	"../labrpc"
 )
 
@@ -123,6 +125,13 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.log)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -145,6 +154,21 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var log []LogEntry
+	var currentTerm int
+	var votedFor int
+	if d.Decode(&log) != nil ||
+		d.Decode(&currentTerm) != nil ||
+		d.Decode(&votedFor) != nil {
+		fmt.Println("Couldnt restore persist")
+	} else {
+		rf.log = log
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.persist()
+	}
 }
 
 //
@@ -200,6 +224,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.state = Follower
 		rf.voteTimeout = getNewVoteTimeout()
 		rf.votedFor = -1
+		rf.persist()
 	}
 
 	if rf.state == Leader {
@@ -229,6 +254,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			rf.votedFor = args.CandidateID
 			reply.Term = rf.currentTerm
 			rf.voteTimeout = getNewVoteTimeout()
+			rf.persist()
 		}
 	}
 
@@ -277,6 +303,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.currentTerm = args.Term
 		rf.state = Follower
 		rf.votedFor = -1
+		rf.persist()
 	}
 
 	if rf.state == Leader {
@@ -318,6 +345,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 					rf.log = append(rf.log[:args.PrevLogIndex+1], newEntries...)
 					reply.Success = true
 					reply.Term = rf.currentTerm
+					rf.persist()
 				} else {
 					reply.Success = false
 					reply.ConflictIndex = args.PrevLogIndex
@@ -380,7 +408,7 @@ func (rf *Raft) sendIndex(server int, index int) {
 			args.LeaderCommit = rf.commitIndex
 			fmt.Printf("%v S %d : sendIndex %d index %d\n", time.Now().Format("15:04:05.000000"), rf.me, server, index)
 			for _, e := range rf.log[rf.matchIndex[server]+1 : index+1] {
-				fmt.Printf("%v S %d : Writing command %d\n", time.Now().Format("15:04:05.000000"), rf.me, e)
+				//fmt.Printf("%v S %d : Writing command %d\n", time.Now().Format("15:04:05.000000"), rf.me, e)
 				args.Entries = append(args.Entries, e.Command)
 			}
 			args.PrevLogIndex = rf.matchIndex[server]
@@ -393,6 +421,7 @@ func (rf *Raft) sendIndex(server int, index int) {
 				rf.currentTerm = reply.Term
 				rf.state = Follower
 				rf.voteTimeout = getNewVoteTimeout()
+				rf.persist()
 				rf.mu.Unlock()
 				return
 			} else if reply.Success && ok {
@@ -417,7 +446,8 @@ func (rf *Raft) sendIndex(server int, index int) {
 			} else if !reply.Success && ok {
 				rf.mu.Lock()
 				k = k + 1
-				newIndex := max(int(0), (reply.ConflictIndex - (1 * k)))
+				newIndex := max(int(0), (reply.ConflictIndex - (4 * k)))
+				newIndex = min(newIndex, len(rf.log)-1)
 				fmt.Printf("%v S %d : New index: %v, k: %v \n", time.Now().Format("15:04:05.000000"), rf.me, newIndex, k)
 				rf.matchIndex[server] = newIndex
 				rf.mu.Unlock()
@@ -431,6 +461,12 @@ func (rf *Raft) sendIndex(server int, index int) {
 
 func max(x, y int) int {
 	if x < y {
+		return y
+	}
+	return x
+}
+func min(x, y int) int {
+	if x > y {
 		return y
 	}
 	return x
@@ -451,6 +487,7 @@ func (rf *Raft) sendHeartbeat(server int) {
 			rf.currentTerm = reply.Term
 			rf.state = Follower
 			rf.voteTimeout = getNewVoteTimeout()
+			rf.persist()
 			rf.mu.Unlock()
 		}
 	}(server)
@@ -487,6 +524,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	newEntry := LogEntry{Term: term, Command: command}
 	rf.log = append(rf.log, newEntry)
 	rf.matchIndex[rf.me] = index
+	rf.persist()
 	rf.mu.Unlock()
 
 	fmt.Printf("%v S %d : Start I: %d T: %d \n", time.Now().Format("15:04:05.000000"), rf.me, index, term)
@@ -573,7 +611,7 @@ func (rf *Raft) startElection() {
 					rf.nextIndex[i] = len(rf.log)
 					rf.matchIndex[i] = 0
 				}
-
+				rf.persist()
 				rf.mu.Unlock()
 				rf.doHeartbeats()
 				return
@@ -583,6 +621,7 @@ func (rf *Raft) startElection() {
 				rf.state = Follower
 				rf.voteTimeout = getNewVoteTimeout()
 				rf.votedFor = -1
+				rf.persist()
 				rf.mu.Unlock()
 				return
 			}
@@ -650,6 +689,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					rf.state = Candidate
 					rf.voteTimeout = getNewVoteTimeout()
 					rf.votedFor = rf.me
+					rf.persist()
 					rf.mu.Unlock()
 					rf.startElection()
 				}
