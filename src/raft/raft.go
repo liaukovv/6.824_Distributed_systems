@@ -307,7 +307,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	if rf.state == Leader {
-		fmt.Printf("%v S %d : I'm a leader already! T: %d CT: %d\n", time.Now().Format("15:04:05.000000"), rf.me, args.Term, rf.currentTerm)
+		//fmt.Printf("%v S %d : I'm a leader already! T: %d CT: %d\n", time.Now().Format("15:04:05.000000"), rf.me, args.Term, rf.currentTerm)
 		return
 	}
 	rf.voteTimeout = getNewVoteTimeout()
@@ -325,7 +325,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			if len(rf.log) > args.LeaderCommit {
 				for args.LeaderCommit > rf.commitIndex {
 					rf.commitIndex = rf.commitIndex + 1
-					fmt.Printf("%v S %d : New commit: %d\n", time.Now().Format("15:04:05.000000"), rf.me, rf.commitIndex)
+					//fmt.Printf("%v S %d : New commit: %d\n", time.Now().Format("15:04:05.000000"), rf.me, rf.commitIndex)
 					msg := ApplyMsg{Command: rf.log[rf.commitIndex].Command, CommandIndex: rf.commitIndex, CommandValid: true}
 					rf.applyCh <- msg
 				}
@@ -336,7 +336,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				reply.ConflictIndex = len(rf.log) - 1
 			} else {
 				if rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
-					fmt.Printf("%v S %d : Appending %d entries to the log, PLI: %d\n", time.Now().Format("15:04:05.000000"), rf.me, len(args.Entries), args.PrevLogIndex)
+					//fmt.Printf("%v S %d : Appending %d entries to the log, PLI: %d\n", time.Now().Format("15:04:05.000000"), rf.me, len(args.Entries), args.PrevLogIndex)
 					newEntries := make([]LogEntry, 0)
 					for _, e := range args.Entries {
 						newEntries = append(newEntries, LogEntry{Command: e, Term: args.Term})
@@ -406,7 +406,7 @@ func (rf *Raft) sendIndex(server int, index int) {
 			args.Term = rf.currentTerm
 			//args.LeaderID = rf.me
 			args.LeaderCommit = rf.commitIndex
-			fmt.Printf("%v S %d : sendIndex %d index %d\n", time.Now().Format("15:04:05.000000"), rf.me, server, index)
+			//fmt.Printf("%v S %d : sendIndex %d index %d\n", time.Now().Format("15:04:05.000000"), rf.me, server, index)
 			for _, e := range rf.log[rf.matchIndex[server]+1 : index+1] {
 				//fmt.Printf("%v S %d : Writing command %d\n", time.Now().Format("15:04:05.000000"), rf.me, e)
 				args.Entries = append(args.Entries, e.Command)
@@ -426,7 +426,7 @@ func (rf *Raft) sendIndex(server int, index int) {
 				return
 			} else if reply.Success && ok {
 				rf.mu.Lock()
-				fmt.Printf("%v S %d : Start reply Server: %v Success: %v \n", time.Now().Format("15:04:05.000000"), rf.me, server, reply.Success)
+				//fmt.Printf("%v S %d : Start reply Server: %v Success: %v \n", time.Now().Format("15:04:05.000000"), rf.me, server, reply.Success)
 				if rf.matchIndex[server] < args.PrevLogIndex+len(args.Entries) {
 					rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
 					rf.nextIndex[server] = args.PrevLogIndex + len(args.Entries) + 1
@@ -435,7 +435,7 @@ func (rf *Raft) sendIndex(server int, index int) {
 				for i := range args.Entries {
 					tryIndex := args.PrevLogIndex + 1 + i
 					if rf.canCommit(tryIndex) {
-						fmt.Printf("%v S %d : Committing entry: %v \n", time.Now().Format("15:04:05.000000"), rf.me, tryIndex)
+						//fmt.Printf("%v S %d : Committing entry: %v \n", time.Now().Format("15:04:05.000000"), rf.me, tryIndex)
 						rf.commitIndex = tryIndex
 						msg := ApplyMsg{Command: rf.log[rf.commitIndex].Command, CommandIndex: rf.commitIndex, CommandValid: true}
 						rf.applyCh <- msg
@@ -448,7 +448,7 @@ func (rf *Raft) sendIndex(server int, index int) {
 				k = k + 1
 				newIndex := max(int(0), (reply.ConflictIndex - (4 * k)))
 				newIndex = min(newIndex, len(rf.log)-1)
-				fmt.Printf("%v S %d : New index: %v, k: %v \n", time.Now().Format("15:04:05.000000"), rf.me, newIndex, k)
+				//fmt.Printf("%v S %d : New index: %v, k: %v \n", time.Now().Format("15:04:05.000000"), rf.me, newIndex, k)
 				rf.matchIndex[server] = newIndex
 				rf.mu.Unlock()
 			} else if !ok {
@@ -527,7 +527,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.persist()
 	rf.mu.Unlock()
 
-	fmt.Printf("%v S %d : Start I: %d T: %d \n", time.Now().Format("15:04:05.000000"), rf.me, index, term)
+	//fmt.Printf("%v S %d : Start I: %d T: %d \n", time.Now().Format("15:04:05.000000"), rf.me, index, term)
 
 	return index, term, isLeader
 }
@@ -568,7 +568,7 @@ func (rf *Raft) doHeartbeats() {
 }
 
 func (rf *Raft) startElection() {
-	fmt.Printf("%v S %d : Starting vote, current term %d \n", time.Now().Format("15:04:05.000000"), rf.me, rf.currentTerm)
+	//fmt.Printf("%v S %d : Starting vote, current term %d \n", time.Now().Format("15:04:05.000000"), rf.me, rf.currentTerm)
 	go func() {
 		var votesFor int64
 		var votesTotal int64
@@ -585,7 +585,7 @@ func (rf *Raft) startElection() {
 					args.LastLogTerm = rf.log[args.LastLogIndex].Term
 					rf.mu.Unlock()
 					res := rf.sendRequestVote(server, &args, &reply)
-					fmt.Printf("%v S %d : Got vote %v validity %v,  total %d \n", time.Now().Format("15:04:05.000000"), rf.me, reply.VoteGranted, res, votesFor)
+					//fmt.Printf("%v S %d : Got vote %v validity %v,  total %d \n", time.Now().Format("15:04:05.000000"), rf.me, reply.VoteGranted, res, votesFor)
 					atomic.AddInt64(&votesTotal, 1)
 					if res && reply.VoteGranted {
 						atomic.AddInt64(&votesFor, 1)
@@ -600,7 +600,7 @@ func (rf *Raft) startElection() {
 				return
 			}
 			if votesFor >= int64(len(rf.peers)/2) {
-				fmt.Printf("%v S %d : Become leader \n", time.Now().Format("15:04:05.000000"), rf.me)
+				//fmt.Printf("%v S %d : Become leader \n", time.Now().Format("15:04:05.000000"), rf.me)
 				rf.mu.Lock()
 				rf.state = Leader
 				rf.voteTimeout = getNewVoteTimeout()
@@ -616,7 +616,7 @@ func (rf *Raft) startElection() {
 				rf.doHeartbeats()
 				return
 			} else if votesTotal >= int64(len(rf.peers)-1) {
-				fmt.Printf("%vf S %d : Failed to become leader \n", time.Now().Format("15:04:05.000000"), rf.me)
+				//fmt.Printf("%vf S %d : Failed to become leader \n", time.Now().Format("15:04:05.000000"), rf.me)
 				rf.mu.Lock()
 				rf.state = Follower
 				rf.voteTimeout = getNewVoteTimeout()
